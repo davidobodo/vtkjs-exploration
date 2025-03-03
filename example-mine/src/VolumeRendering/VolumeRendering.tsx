@@ -9,6 +9,8 @@ import vtkVolume from "@kitware/vtk.js/Rendering/Core/Volume";
 import vtkFullScreenRenderWindow from "@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow";
 import vtkHttpDataSetReader from "@kitware/vtk.js/IO/Core/HttpDataSetReader";
 import vtkPiecewiseFunction from "@kitware/vtk.js/Common/DataModel/PiecewiseFunction";
+import vtkColorTransferFunction from "@kitware/vtk.js/Rendering/Core/ColorTransferFunction";
+import vtkColorMaps from "@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps";
 // import vtkXMLImageDataReader from "@kitware/vtk.js/IO/XML/XMLImageDataReader";
 
 // import vtkHttpDataSetReader from "../../node_modules/@kitware/vtk.js/IO/Core/HttpDataSetReader";
@@ -29,6 +31,12 @@ export default function VolumeRendering() {
 
 		const piecewiseFun = vtkPiecewiseFunction.newInstance();
 
+		const lookupTable = vtkColorTransferFunction.newInstance();
+
+		lookupTable.applyColorMap(vtkColorMaps.getPresetByName("Cool to Warm"));
+		lookupTable.setMappingRange(0, 256);
+		lookupTable.updateRange();
+
 		for (let i = 0; i <= 8; i++) {
 			piecewiseFun.addPoint(i * 32, i / 8);
 		}
@@ -37,6 +45,7 @@ export default function VolumeRendering() {
 		const mapper = vtkVolumeMapper.newInstance();
 		actor.setMapper(mapper);
 		actor.getProperty().setScalarOpacity(0, piecewiseFun);
+		actor.getProperty().setRGBTransferFunction(0, lookupTable);
 
 		//OPTION 1: USING BUILT IN VTKHTTPDATASETREADER
 		const reader = vtkHttpDataSetReader.newInstance({ fetchGzip: true });
@@ -46,6 +55,10 @@ export default function VolumeRendering() {
 			.then(() => reader.loadData())
 			.then(() => {
 				renderer.addVolume(actor);
+
+				const range = reader.getOutputData().getPointData().getScalars().getRange();
+				lookupTable.setMappingRange(...range);
+				lookupTable.updateRange();
 				renderer.resetCamera();
 				renderWindow.render();
 			});
