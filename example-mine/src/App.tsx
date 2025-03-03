@@ -1,11 +1,13 @@
-import GeometryRendering from "./GeometryRendering/GeometryRendering";
-import VolumeRendering from "./VolumeRendering/VolumeRendering";
+import GeometryRendering from "./GeometryRendering";
+import VolumeRendering from "./VolumeRendering";
+import VolumeSlicing from "./VolumeSlicing";
 
 function App() {
 	return (
 		<div>
 			{/* <GeometryRendering /> */}
-			<VolumeRendering />
+			<VolumeSlicing />
+			{/* <VolumeRendering /> */}
 		</div>
 	);
 }
