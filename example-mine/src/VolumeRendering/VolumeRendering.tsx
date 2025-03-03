@@ -8,6 +8,7 @@ import vtkVolumeMapper from "@kitware/vtk.js/Rendering/Core/VolumeMapper";
 import vtkVolume from "@kitware/vtk.js/Rendering/Core/Volume";
 import vtkFullScreenRenderWindow from "@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow";
 import vtkHttpDataSetReader from "@kitware/vtk.js/IO/Core/HttpDataSetReader";
+import vtkPiecewiseFunction from "@kitware/vtk.js/Common/DataModel/PiecewiseFunction";
 // import vtkXMLImageDataReader from "@kitware/vtk.js/IO/XML/XMLImageDataReader";
 
 // import vtkHttpDataSetReader from "../../node_modules/@kitware/vtk.js/IO/Core/HttpDataSetReader";
@@ -26,9 +27,16 @@ export default function VolumeRendering() {
 		const renderer = fullScreenRenderer.getRenderer();
 		const renderWindow = fullScreenRenderer.getRenderWindow();
 
+		const piecewiseFun = vtkPiecewiseFunction.newInstance();
+
+		for (let i = 0; i <= 8; i++) {
+			piecewiseFun.addPoint(i * 32, i / 8);
+		}
+
 		const actor = vtkVolume.newInstance();
 		const mapper = vtkVolumeMapper.newInstance();
 		actor.setMapper(mapper);
+		actor.getProperty().setScalarOpacity(0, piecewiseFun);
 
 		//OPTION 1: USING BUILT IN VTKHTTPDATASETREADER
 		const reader = vtkHttpDataSetReader.newInstance({ fetchGzip: true });
