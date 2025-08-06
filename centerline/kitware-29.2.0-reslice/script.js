@@ -9,22 +9,15 @@ window.global = window.global || window;
 // Force the loading of HttpDataAccessHelper to support gzip decompression
 import "@kitware/vtk.js/IO/Core/DataAccessHelper/HttpDataAccessHelper";
 
-// import { ProjectionMode } from "@kitware/vtk.js/Rendering/Core/ImageCPRMapper/Constants";
-import { radiansFromDegrees } from "@kitware/vtk.js/Common/Core/Math";
-import { updateState } from "@kitware/vtk.js/Widgets/Widgets3D/ResliceCursorWidget/helpers";
-import { vec3, mat3, mat4 } from "gl-matrix";
 import { ViewTypes } from "@kitware/vtk.js/Widgets/Core/WidgetManager/Constants";
-import vtkCPRManipulator from "@kitware/vtk.js/Widgets/Manipulators/CPRManipulator";
-import vtkDataArray from "@kitware/vtk.js/Common/Core/DataArray";
+import { radiansFromDegrees } from "@kitware/vtk.js/Common/Core/Math";
+import { vec3 } from "gl-matrix";
 import vtkFullScreenRenderWindow from "@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow";
 import vtkHttpDataSetReader from "@kitware/vtk.js/IO/Core/HttpDataSetReader";
-import vtkImageCPRMapper from "@kitware/vtk.js/Rendering/Core/ImageCPRMapper";
 import vtkImageMapper from "@kitware/vtk.js/Rendering/Core/ImageMapper";
 import vtkImageReslice from "@kitware/vtk.js/Imaging/Core/ImageReslice";
 import vtkImageSlice from "@kitware/vtk.js/Rendering/Core/ImageSlice";
 import vtkInteractorStyleImage from "@kitware/vtk.js/Interaction/Style/InteractorStyleImage";
-import vtkPlaneManipulator from "@kitware/vtk.js/Widgets/Manipulators/PlaneManipulator";
-import vtkPolyData from "@kitware/vtk.js/Common/DataModel/PolyData";
 import vtkRenderer from "@kitware/vtk.js/Rendering/Core/Renderer";
 import vtkResliceCursorWidget from "@kitware/vtk.js/Widgets/Widgets3D/ResliceCursorWidget";
 import vtkWidgetManager from "@kitware/vtk.js/Widgets/Core/WidgetManager";
@@ -36,28 +29,17 @@ const volumePath = `https://kitware.github.io/vtk-js/data/volume/LIDC2.vti`;
 
 // Initialize the app
 async function initApp() {
-	// Load centerline data
-	const aortaJSON = await fetch("./aorta_centerline.json").then((r) => r.json());
-	const spineJSON = await fetch("./spine_centerline.json").then((r) => r.json());
-	const centerlineJsons = { Aorta: aortaJSON, Spine: spineJSON };
-	const centerlineKeys = Object.keys(centerlineJsons);
-
 	// ----------------------------------------------------------------------------
 	// Standard rendering code setup
 	// ----------------------------------------------------------------------------
 
 	const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance();
-	const stretchRenderer = fullScreenRenderer.getRenderer();
 	const renderWindow = fullScreenRenderer.getRenderWindow();
 
 	fullScreenRenderer.addController(controlPanel);
+	const centerlineEl = document.getElementById("centerline");
 	const angleEl = document.getElementById("angle");
 	const animateEl = document.getElementById("animate");
-	const centerlineEl = document.getElementById("centerline");
-	const modeEl = document.getElementById("mode");
-	const projectionModeEl = document.getElementById("projectionMode");
-	const projectionThicknessEl = document.getElementById("projectionThickness");
-	const projectionSamplesEl = document.getElementById("projectionSamples");
 
 	const interactor = renderWindow.getInteractor();
 	interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
@@ -70,11 +52,7 @@ async function initApp() {
 		planes: [stretchPlane, crossPlane],
 		behavior: widgetBehavior,
 	});
-	const widgetManager = vtkWidgetManager.newInstance();
-	widgetManager.setRenderer(stretchRenderer);
-	const stretchViewType = ViewTypes.XZ_PLANE;
 	const crossViewType = ViewTypes.XY_PLANE;
-	const stretchViewWidgetInstance = widgetManager.addWidget(widget, stretchViewType);
 	const widgetState = widget.getWidgetState();
 
 	// Set size in CSS pixel space because scaleInPixels defaults to true
@@ -83,10 +61,9 @@ async function initApp() {
 	widgetState.getStatesWithLabel(`rotationIn${stretchPlane}`).forEach((handle) => handle.setVisible(false));
 
 	const crossRenderer = vtkRenderer.newInstance();
-	crossRenderer.setViewport(0.7, 0, 1, 0.3);
+	crossRenderer.setBackground(0.32, 0.34, 0.43);
+	crossRenderer.setViewport(0, 0, 1, 1);
 	renderWindow.addRenderer(crossRenderer);
-	renderWindow.setNumberOfLayers(2);
-	crossRenderer.setLayer(1);
 	const crossWidgetManager = vtkWidgetManager.newInstance();
 	crossWidgetManager.setRenderer(crossRenderer);
 	const crossViewWidgetInstance = crossWidgetManager.addWidget(widget, crossViewType);
@@ -99,7 +76,6 @@ async function initApp() {
 	resliceMapper.setBackgroundColor(0, 0, 0, 0);
 	resliceMapper.setInputConnection(reslice.getOutputPort());
 	const resliceActor = vtkImageSlice.newInstance();
-	// Note: setMapper() moved to after data loading to fix timing issue
 
 	// ----------------------------------------------------------------------------
 	// Example code
@@ -110,139 +86,42 @@ async function initApp() {
 
 	const reader = vtkHttpDataSetReader.newInstance({ fetchGzip: true });
 
-	const centerline = vtkPolyData.newInstance();
-
-	const actor = vtkImageSlice.newInstance();
-	const mapper = vtkImageCPRMapper.newInstance();
-	mapper.setBackgroundColor(0, 0, 0, 0);
-	actor.setMapper(mapper);
-
-	mapper.setInputConnection(reader.getOutputPort(), 0);
-	mapper.setInputData(centerline, 1);
-	mapper.setWidth(400);
-
-	const cprManipulator = vtkCPRManipulator.newInstance({
-		cprActor: actor,
-	});
-	const planeManipulator = vtkPlaneManipulator.newInstance();
+	let currentAngle = 0;
 
 	function updateDistanceAndDirection() {
-		// Directions and position in world space from the widget
-		const widgetPlanes = widgetState.getPlanes();
-		const worldBitangent = widgetPlanes[stretchViewType].normal;
-		const worldNormal = widgetPlanes[stretchViewType].viewUp;
-		widgetPlanes[crossViewType].normal = worldNormal;
-		widgetPlanes[crossViewType].viewUp = worldBitangent;
-		const worldTangent = vec3.cross([], worldBitangent, worldNormal);
-		vec3.normalize(worldTangent, worldTangent);
-		const worldWidgetCenter = widgetState.getCenter();
-		const distance = cprManipulator.getCurrentDistance();
-
-		// CPR mapper tangent and bitangent directions update
-		const { orientation } = mapper.getCenterlinePositionAndOrientation(distance);
-		// modelDirections * baseDirections = worldDirections
-		// => baseDirections = modelDirections^(-1) * worldDirections
-		const modelDirections = mat3.fromQuat([], orientation);
-		const inverseModelDirections = mat3.invert([], modelDirections);
-		const worldDirections = mat3.fromValues(...worldTangent, ...worldBitangent, ...worldNormal);
-		const baseDirections = mat3.mul([], inverseModelDirections, worldDirections);
-		mapper.setDirectionMatrix(baseDirections);
-
 		// Cross renderer update
 		widget.updateReslicePlane(reslice, crossViewType);
 		resliceActor.setUserMatrix(reslice.getResliceAxes());
 		widget.updateCameraPoints(crossRenderer, crossViewType, false, false, true);
-		const crossCamera = crossRenderer.getActiveCamera();
-		crossCamera.setViewUp(modelDirections[3], modelDirections[4], modelDirections[5]);
 
-		// Update plane manipulator origin / normal for the cross view
-		planeManipulator.setUserOrigin(worldWidgetCenter);
-		planeManipulator.setUserNormal(worldNormal);
-
-		// Find the angle
-		const signedRadAngle = Math.atan2(baseDirections[1], baseDirections[0]);
-		const signedDegAngle = (signedRadAngle * 180) / Math.PI;
-		const degAngle = signedDegAngle > 0 ? signedDegAngle : 360 + signedDegAngle;
-		angleEl.value = degAngle;
-		updateState(widgetState, widget.getScaleInPixels(), widget.getRotationHandlePosition());
-
-		const width = mapper.getWidth();
-		const height = mapper.getHeight();
-
-		// CPR actor matrix update
-		const worldActorTranslation = vec3.scaleAndAdd([], worldWidgetCenter, worldTangent, -0.5 * width);
-		vec3.scaleAndAdd(worldActorTranslation, worldActorTranslation, worldNormal, distance - height);
-		const worldActorTransform = mat4.fromValues(
-			...worldTangent,
-			0,
-			...worldNormal,
-			0,
-			...vec3.scale([], worldBitangent, -1),
-			0,
-			...worldActorTranslation,
-			1
-		);
-		actor.setUserMatrix(worldActorTransform);
-
-		// CPR camera reset
-		const stretchCamera = stretchRenderer.getActiveCamera();
-		const cameraDistance = (0.5 * height) / Math.tan(radiansFromDegrees(0.5 * stretchCamera.getViewAngle()));
-		stretchCamera.setParallelScale(0.5 * height);
-		stretchCamera.setParallelProjection(true);
-		const cameraFocalPoint = vec3.scaleAndAdd([], worldWidgetCenter, worldNormal, distance - 0.5 * height);
-		const cameraPosition = vec3.scaleAndAdd([], cameraFocalPoint, worldBitangent, -cameraDistance);
-		stretchCamera.setPosition(...cameraPosition);
-		stretchCamera.setFocalPoint(...cameraFocalPoint);
-		stretchCamera.setViewUp(...worldNormal);
-		stretchRenderer.resetCameraClippingRange();
 		interactor.render();
-
 		renderWindow.render();
 	}
 
-	// The centerline JSON contains positions (vec3) and orientations (mat4)
-	let currentCenterlineKey = centerlineKeys[0];
-	let currentImage = null;
-	function setCenterlineKey(centerlineKey) {
-		currentCenterlineKey = centerlineKey;
-		const centerlineJson = centerlineJsons[centerlineKey];
-		if (!currentImage) {
-			return;
-		}
-		// Set positions of the centerline (model coordinates)
-		const centerlinePoints = Float32Array.from(centerlineJson.position);
-		const nPoints = centerlinePoints.length / 3;
-		centerline.getPoints().setData(centerlinePoints, 3);
+	function setAngleFromSlider(radAngle) {
+		currentAngle = radAngle;
+		// Rotate the widget around its center
+		const widgetPlanes = widgetState.getPlanes();
+		const center = widgetState.getCenter();
+		
+		// Create rotation around Z-axis
+		const normalDir = [0, 0, 1];
+		const bitangentDir = [0, 1, 0];
+		vec3.rotateZ(bitangentDir, bitangentDir, [0, 0, 0], radAngle);
+		
+		// Update the widget planes
+		widgetPlanes[crossViewType].normal = normalDir;
+		widgetPlanes[crossViewType].viewUp = bitangentDir;
+		widgetState.setPlanes(widgetPlanes);
 
-		// Set polylines of the centerline
-		const centerlineLines = new Uint16Array(1 + nPoints);
-		centerlineLines[0] = nPoints;
-		for (let i = 0; i < nPoints; ++i) {
-			centerlineLines[i + 1] = i;
-		}
-		centerline.getLines().setData(centerlineLines);
-
-		// Create a rotated basis data array to oriented the CPR
-		centerline.getPointData().setTensors(
-			vtkDataArray.newInstance({
-				name: "Orientation",
-				numberOfComponents: 16,
-				values: Float32Array.from(centerlineJson.orientation),
-			})
-		);
-		centerline.modified();
-
-		const midPointDistance = mapper.getHeight() / 2;
-		const { worldCoords } = cprManipulator.distanceEvent(midPointDistance);
-		widgetState.setCenter(worldCoords);
 		updateDistanceAndDirection();
-
-		widgetState[`getAxis${crossPlane}in${stretchPlane}`]().setManipulator(cprManipulator);
-		widgetState[`getAxis${stretchPlane}in${crossPlane}`]().setManipulator(planeManipulator);
-		widget.setManipulator(cprManipulator);
-
-		renderWindow.render();
 	}
+
+	// Load centerline data
+	const aortaJSON = await fetch("./aorta_centerline.json").then((r) => r.json());
+	const spineJSON = await fetch("./spine_centerline.json").then((r) => r.json());
+	const centerlineJsons = { Aorta: aortaJSON, Spine: spineJSON };
+	const centerlineKeys = Object.keys(centerlineJsons);
 
 	// Create an option for each centerline
 	for (let i = 0; i < centerlineKeys.length; ++i) {
@@ -252,6 +131,16 @@ async function initApp() {
 		optionEl.value = name;
 		centerlineEl.appendChild(optionEl);
 	}
+
+	let currentImage = null;
+	function setCenterlineKey(centerlineKey) {
+		if (!currentImage) {
+			return;
+		}
+		updateDistanceAndDirection();
+		renderWindow.render();
+	}
+
 	centerlineEl.addEventListener("input", () => setCenterlineKey(centerlineEl.value));
 
 	// Read image
@@ -259,17 +148,8 @@ async function initApp() {
 		reader.loadData().then(() => {
 			const image = reader.getOutputData();
 			widget.setImage(image);
-			const imageDimensions = image.getDimensions();
-			const imageSpacing = image.getSpacing();
-			const diagonal = vec3.mul([], imageDimensions, imageSpacing);
-			mapper.setWidth(2 * vec3.len(diagonal));
-
-			actor.setUserMatrix(widget.getResliceAxes(stretchViewType));
-			stretchRenderer.addVolume(actor);
-			widget.updateCameraPoints(stretchRenderer, stretchViewType, true, false, true);
 
 			reslice.setInputData(image);
-			// Set mapper after data is loaded and pipeline is established
 			resliceActor.setMapper(resliceMapper);
 			crossRenderer.addActor(resliceActor);
 			widget.updateReslicePlane(reslice, crossViewType);
@@ -277,133 +157,34 @@ async function initApp() {
 			widget.updateCameraPoints(crossRenderer, crossViewType, true, false, true);
 
 			currentImage = image;
-			setCenterlineKey(currentCenterlineKey);
+			setCenterlineKey(centerlineKeys[0]);
 
 			global.imageData = image;
 		});
 	});
 
-	function setAngleFromSlider(radAngle) {
-		// Compute normal and bitangent directions from angle
-		const origin = [0, 0, 0];
-		const normalDir = [0, 0, 1];
-		const bitangentDir = [0, 1, 0];
-		vec3.rotateZ(bitangentDir, bitangentDir, origin, radAngle);
+	crossViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
 
-		// Get orientation from distance
-		const distance = cprManipulator.getCurrentDistance();
-		const { orientation } = mapper.getCenterlinePositionAndOrientation(distance);
-		const modelDirections = mat3.fromQuat([], orientation);
+	// Angle control
+	angleEl.addEventListener("input", () => {
+		const degAngle = Number.parseFloat(angleEl.value, 10);
+		setAngleFromSlider(radiansFromDegrees(degAngle));
+	});
 
-		// Set widget normal and viewUp from orientation and directions
-		const worldBitangent = vec3.transformMat3([], bitangentDir, modelDirections);
-		const worldNormal = vec3.transformMat3([], normalDir, modelDirections);
-		const widgetPlanes = widgetState.getPlanes();
-		widgetPlanes[stretchViewType].normal = worldBitangent;
-		widgetPlanes[stretchViewType].viewUp = worldNormal;
-		widgetPlanes[crossViewType].normal = worldNormal;
-		widgetPlanes[crossViewType].viewUp = worldBitangent;
-		widgetState.setPlanes(widgetPlanes);
-
-		updateDistanceAndDirection();
-	}
-
-	angleEl.addEventListener("input", () => setAngleFromSlider(radiansFromDegrees(Number.parseFloat(angleEl.value, 10))));
-
+	// Animation control
 	let animationId;
 	animateEl.addEventListener("change", () => {
 		if (animateEl.checked) {
 			animationId = setInterval(() => {
-				const currentAngle = radiansFromDegrees(Number.parseFloat(angleEl.value, 10));
-				setAngleFromSlider(currentAngle + 0.1);
+				currentAngle += 0.05; // Slower rotation for better visibility
+				const degAngle = (currentAngle * 180) / Math.PI;
+				angleEl.value = degAngle % 360;
+				setAngleFromSlider(currentAngle);
 			}, 60);
 		} else {
 			clearInterval(animationId);
 		}
 	});
-
-	function useStraightenedMode() {
-		mapper.useStraightenedMode();
-		updateDistanceAndDirection();
-	}
-
-	function useStretchedMode() {
-		mapper.useStretchedMode();
-		updateDistanceAndDirection();
-	}
-
-	let cprMode;
-	function setUseStretched(value) {
-		cprMode = value;
-		switch (cprMode) {
-			case "stretched":
-				useStretchedMode();
-				break;
-			default:
-				useStraightenedMode();
-				break;
-		}
-	}
-
-	const stretchEl = document.createElement("option");
-	stretchEl.innerText = "Stretched Mode";
-	stretchEl.value = "stretched";
-	modeEl.appendChild(stretchEl);
-	const straightEl = document.createElement("option");
-	straightEl.innerText = "Straightened Mode";
-	straightEl.value = "straightened";
-	modeEl.appendChild(straightEl);
-	modeEl.addEventListener("input", () => setUseStretched(modeEl.value));
-	modeEl.value = "straightened";
-
-	const projectionModes = ["MAX", "MIN", "MEAN"];
-	projectionModes.forEach((projectionMode) => {
-		const optionEl = document.createElement("option");
-		optionEl.innerText = projectionMode.charAt(0) + projectionMode.substring(1).toLowerCase();
-		optionEl.value = projectionMode;
-		projectionModeEl.appendChild(optionEl);
-	});
-
-	projectionModeEl.addEventListener("input", (ev) => {
-		if (mapper.setProjectionMode) {
-			mapper.setProjectionMode(ProjectionMode[projectionModeEl.value]);
-			renderWindow.render();
-		}
-	});
-
-	projectionThicknessEl.addEventListener("input", (ev) => {
-		const thicknessRatio = Number.parseFloat(projectionThicknessEl.value, 10);
-		const image = mapper.getInputData();
-		if (image) {
-			const spacing = image.getSpacing();
-			const dimensions = image.getDimensions();
-			const diagonal = vec3.len(vec3.mul([], spacing, dimensions));
-			const thickness = diagonal * thicknessRatio;
-			if (mapper.setProjectionSlabThickness) {
-				mapper.setProjectionSlabThickness(thickness);
-			}
-		}
-		renderWindow.render();
-	});
-	if (mapper.setProjectionSlabThickness) {
-		mapper.setProjectionSlabThickness(0.1);
-	}
-
-	if (mapper.getProjectionSlabThickness) {
-		projectionThicknessEl.value = mapper.getProjectionSlabThickness();
-	}
-
-	projectionSamplesEl.addEventListener("input", (ev) => {
-		const samples = Number.parseInt(projectionSamplesEl.value, 10);
-		mapper.setProjectionSlabNumberOfSamples(samples);
-		renderWindow.render();
-	});
-	if (mapper.getProjectionSlabNumberOfSamples) {
-		projectionSamplesEl.value = mapper.getProjectionSlabNumberOfSamples();
-	}
-
-	stretchViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
-	crossViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
 
 	// -----------------------------------------------------------
 	// Make some variables global so that you can inspect and
@@ -412,12 +193,9 @@ async function initApp() {
 
 	if (typeof global !== "undefined") {
 		global.source = reader;
-		global.mapper = mapper;
-		global.actor = actor;
-		global.renderer = stretchRenderer;
 		global.renderWindow = renderWindow;
-		global.centerline = centerline;
-		global.centerlines = centerlineJsons;
+		global.widget = widget;
+		global.reslice = reslice;
 	}
 } // End initApp
 
