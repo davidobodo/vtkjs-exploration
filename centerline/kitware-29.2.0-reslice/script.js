@@ -39,7 +39,9 @@ async function initApp() {
 	// Standard rendering code setup
 	// ----------------------------------------------------------------------------
 
-	const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance();
+	const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
+		container: document.getElementById('reslice-container')
+	});
 	const renderWindow = fullScreenRenderer.getRenderWindow();
 
 	fullScreenRenderer.addController(controlPanel);
