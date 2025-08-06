@@ -3,6 +3,9 @@ import "@kitware/vtk.js/favicon";
 // Load the rendering pieces we want to use (for both WebGL and WebGPU)
 import "@kitware/vtk.js/Rendering/Profiles/All";
 
+// Ensure global is available in browser environment
+window.global = window.global || window;
+
 // Force the loading of HttpDataAccessHelper to support gzip decompression
 import "@kitware/vtk.js/IO/Core/DataAccessHelper/HttpDataAccessHelper";
 
@@ -33,11 +36,14 @@ const volumePath = `https://kitware.github.io/vtk-js/data/volume/LIDC2.vti`;
 
 // Initialize the app
 async function initApp() {
+	console.log("TRYING TO INIT APP ==== BEFORE");
 	// Load centerline data
 	const aortaJSON = await fetch("./aorta_centerline.json").then((r) => r.json());
 	const spineJSON = await fetch("./spine_centerline.json").then((r) => r.json());
 	const centerlineJsons = { Aorta: aortaJSON, Spine: spineJSON };
 	const centerlineKeys = Object.keys(centerlineJsons);
+
+	console.log("=== AFTER FETCHING JSONS");
 
 	// ----------------------------------------------------------------------------
 	// Standard rendering code setup
@@ -393,13 +399,15 @@ async function initApp() {
 	// modify objects in your browser's developer console:
 	// -----------------------------------------------------------
 
-	global.source = reader;
-	global.mapper = mapper;
-	global.actor = actor;
-	global.renderer = stretchRenderer;
-	global.renderWindow = renderWindow;
-	global.centerline = centerline;
-	global.centerlines = centerlineJsons;
+	if (typeof global !== "undefined") {
+		global.source = reader;
+		global.mapper = mapper;
+		global.actor = actor;
+		global.renderer = stretchRenderer;
+		global.renderWindow = renderWindow;
+		global.centerline = centerline;
+		global.centerlines = centerlineJsons;
+	}
 } // End initApp
 
 // Start the application

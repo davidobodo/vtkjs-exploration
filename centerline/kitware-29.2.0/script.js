@@ -3,6 +3,9 @@ import "@kitware/vtk.js/favicon";
 // Load the rendering pieces we want to use (for both WebGL and WebGPU)
 import "@kitware/vtk.js/Rendering/Profiles/All";
 
+// Ensure global is available in browser environment
+window.global = window.global || window;
+
 // Force the loading of HttpDataAccessHelper to support gzip decompression
 import "@kitware/vtk.js/IO/Core/DataAccessHelper/HttpDataAccessHelper";
 
@@ -96,7 +99,7 @@ async function initApp() {
 	resliceMapper.setBackgroundColor(0, 0, 0, 0);
 	resliceMapper.setInputConnection(reslice.getOutputPort());
 	const resliceActor = vtkImageSlice.newInstance();
-	resliceActor.setMapper(resliceMapper);
+	// Note: setMapper() moved to after data loading to fix timing issue
 
 	// ----------------------------------------------------------------------------
 	// Example code
@@ -266,6 +269,8 @@ async function initApp() {
 			widget.updateCameraPoints(stretchRenderer, stretchViewType, true, false, true);
 
 			reslice.setInputData(image);
+			// Set mapper after data is loaded and pipeline is established
+			resliceActor.setMapper(resliceMapper);
 			crossRenderer.addActor(resliceActor);
 			widget.updateReslicePlane(reslice, crossViewType);
 			resliceActor.setUserMatrix(reslice.getResliceAxes());
@@ -274,9 +279,7 @@ async function initApp() {
 			currentImage = image;
 			setCenterlineKey(currentCenterlineKey);
 
-			if (typeof global !== "undefined") {
-				global.imageData = image;
-			}
+			global.imageData = image;
 		});
 	});
 
