@@ -333,10 +333,8 @@ async function initApp() {
 	animateEl.addEventListener("change", () => {
 		if (animateEl.checked) {
 			animationId = setInterval(() => {
-				currentAngle += 0.05; // Slower rotation for better visibility
-				const degAngle = (currentAngle * 180) / Math.PI;
-				angleEl.value = degAngle % 360;
-				setAngleFromSlider(currentAngle);
+				const currentAngle = radiansFromDegrees(Number.parseFloat(angleEl.value, 10));
+				setAngleFromSlider(currentAngle + 0.1);
 			}, 60);
 		} else {
 			clearInterval(animationId);
