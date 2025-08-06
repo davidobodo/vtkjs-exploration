@@ -6,7 +6,7 @@ import "@kitware/vtk.js/Rendering/Profiles/All";
 // Force the loading of HttpDataAccessHelper to support gzip decompression
 import "@kitware/vtk.js/IO/Core/DataAccessHelper/HttpDataAccessHelper";
 
-import { ProjectionMode } from "@kitware/vtk.js/Rendering/Core/ImageCPRMapper/Constants";
+// import { ProjectionMode } from "@kitware/vtk.js/Rendering/Core/ImageCPRMapper/Constants";
 import { radiansFromDegrees } from "@kitware/vtk.js/Common/Core/Math";
 import { updateState } from "@kitware/vtk.js/Widgets/Widgets3D/ResliceCursorWidget/helpers";
 import { vec3, mat3, mat4 } from "gl-matrix";
@@ -148,7 +148,7 @@ async function initApp() {
 		// Cross renderer update
 		widget.updateReslicePlane(reslice, crossViewType);
 		resliceActor.setUserMatrix(reslice.getResliceAxes());
-		widget.updateCameraPoints(crossRenderer, crossViewType, false, false);
+		widget.updateCameraPoints(crossRenderer, crossViewType, false, false, true);
 		const crossCamera = crossRenderer.getActiveCamera();
 		crossCamera.setViewUp(modelDirections[3], modelDirections[4], modelDirections[5]);
 
@@ -263,18 +263,20 @@ async function initApp() {
 
 			actor.setUserMatrix(widget.getResliceAxes(stretchViewType));
 			stretchRenderer.addVolume(actor);
-			widget.updateCameraPoints(stretchRenderer, stretchViewType, true, true);
+			widget.updateCameraPoints(stretchRenderer, stretchViewType, true, false, true);
 
 			reslice.setInputData(image);
 			crossRenderer.addActor(resliceActor);
 			widget.updateReslicePlane(reslice, crossViewType);
 			resliceActor.setUserMatrix(reslice.getResliceAxes());
-			widget.updateCameraPoints(crossRenderer, crossViewType, true, true);
+			widget.updateCameraPoints(crossRenderer, crossViewType, true, false, true);
 
 			currentImage = image;
 			setCenterlineKey(currentCenterlineKey);
 
-			global.imageData = image;
+			if (typeof global !== "undefined") {
+				global.imageData = image;
+			}
 		});
 	});
 
@@ -351,7 +353,8 @@ async function initApp() {
 	modeEl.addEventListener("input", () => setUseStretched(modeEl.value));
 	modeEl.value = "straightened";
 
-	Object.keys(ProjectionMode).forEach((projectionMode) => {
+	const projectionModes = ["MAX", "MIN", "MEAN"];
+	projectionModes.forEach((projectionMode) => {
 		const optionEl = document.createElement("option");
 		optionEl.innerText = projectionMode.charAt(0) + projectionMode.substring(1).toLowerCase();
 		optionEl.value = projectionMode;
@@ -359,8 +362,10 @@ async function initApp() {
 	});
 
 	projectionModeEl.addEventListener("input", (ev) => {
-		mapper.setProjectionMode(ProjectionMode[projectionModeEl.value]);
-		renderWindow.render();
+		if (mapper.setProjectionMode) {
+			mapper.setProjectionMode(ProjectionMode[projectionModeEl.value]);
+			renderWindow.render();
+		}
 	});
 
 	projectionThicknessEl.addEventListener("input", (ev) => {
@@ -371,19 +376,28 @@ async function initApp() {
 			const dimensions = image.getDimensions();
 			const diagonal = vec3.len(vec3.mul([], spacing, dimensions));
 			const thickness = diagonal * thicknessRatio;
-			mapper.setProjectionSlabThickness(thickness);
+			if (mapper.setProjectionSlabThickness) {
+				mapper.setProjectionSlabThickness(thickness);
+			}
 		}
 		renderWindow.render();
 	});
-	mapper.setProjectionSlabThickness(0.1);
-	projectionThicknessEl.value = mapper.getProjectionSlabThickness();
+	if (mapper.setProjectionSlabThickness) {
+		mapper.setProjectionSlabThickness(0.1);
+	}
+
+	if (mapper.getProjectionSlabThickness) {
+		projectionThicknessEl.value = mapper.getProjectionSlabThickness();
+	}
 
 	projectionSamplesEl.addEventListener("input", (ev) => {
 		const samples = Number.parseInt(projectionSamplesEl.value, 10);
 		mapper.setProjectionSlabNumberOfSamples(samples);
 		renderWindow.render();
 	});
-	projectionSamplesEl.value = mapper.getProjectionSlabNumberOfSamples();
+	if (mapper.getProjectionSlabNumberOfSamples) {
+		projectionSamplesEl.value = mapper.getProjectionSlabNumberOfSamples();
+	}
 
 	stretchViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
 	crossViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
@@ -393,13 +407,15 @@ async function initApp() {
 	// modify objects in your browser's developer console:
 	// -----------------------------------------------------------
 
-	global.source = reader;
-	global.mapper = mapper;
-	global.actor = actor;
-	global.renderer = stretchRenderer;
-	global.renderWindow = renderWindow;
-	global.centerline = centerline;
-	global.centerlines = centerlineJsons;
+	if (typeof global !== "undefined") {
+		global.source = reader;
+		global.mapper = mapper;
+		global.actor = actor;
+		global.renderer = stretchRenderer;
+		global.renderWindow = renderWindow;
+		global.centerline = centerline;
+		global.centerlines = centerlineJsons;
+	}
 } // End initApp
 
 // Start the application
