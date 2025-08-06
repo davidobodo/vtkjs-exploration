@@ -41,13 +41,14 @@ function setupResliceContainer() {
 		container: document.getElementById("reslice-container"),
 	});
 	const renderWindow = fullScreenRenderer.getRenderWindow();
+	const renderer = fullScreenRenderer.getRenderer();
 	fullScreenRenderer.addController(controlPanel);
 
 	const interactor = renderWindow.getInteractor();
 	interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
 	interactor.setDesiredUpdateRate(15.0);
 
-	return { fullScreenRenderer, renderWindow, interactor };
+	return { renderWindow, renderer, interactor };
 }
 
 //------------------------------------------------
@@ -60,11 +61,11 @@ function setupMainImageContainer() {
 	const renderWindow = mainViewRenderer.getRenderWindow();
 	const renderer = mainViewRenderer.getRenderer();
 
-	const mainInteractor = renderWindow.getInteractor();
-	mainInteractor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
-	mainInteractor.setDesiredUpdateRate(15.0);
+	const interactor = renderWindow.getInteractor();
+	interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
+	interactor.setDesiredUpdateRate(15.0);
 
-	return { renderWindow, renderer, mainInteractor };
+	return { renderWindow, renderer, interactor };
 }
 
 //------------------------------------------------
@@ -177,8 +178,12 @@ function populateCenterlineOptions(centerlineEl, centerlineKeys) {
 // Initialize the app
 async function initApp() {
 	// Setup all components
-	const { renderWindow, interactor } = setupResliceContainer();
-	const { renderWindow: mainRenderWindow, renderer: stretchRenderer, mainInteractor } = setupMainImageContainer();
+	const { renderWindow, renderer, interactor } = setupResliceContainer();
+	const {
+		renderWindow: mainRenderWindow,
+		renderer: stretchRenderer,
+		interactor: mainInteractor,
+	} = setupMainImageContainer();
 	const { centerlineEl, angleEl, animateEl } = getControlElements();
 	const { widget, stretchViewType, crossViewType, widgetState, stretchPlane, crossPlane } = createInteractiveCrosshair();
 	const { crossRenderer, crossViewWidgetInstance } = setupResliceRenderer(renderWindow, widget, crossViewType);
