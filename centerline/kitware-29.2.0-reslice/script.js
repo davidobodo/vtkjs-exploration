@@ -39,12 +39,20 @@ async function initApp() {
 	// Standard rendering code setup
 	// ----------------------------------------------------------------------------
 
+	// Reslice view (left half)
 	const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
 		container: document.getElementById('reslice-container')
 	});
 	const renderWindow = fullScreenRenderer.getRenderWindow();
 
 	fullScreenRenderer.addController(controlPanel);
+
+	// Main CPR view (right half)
+	const mainViewRenderer = vtkFullScreenRenderWindow.newInstance({
+		container: document.getElementById('main-view-container')
+	});
+	const mainRenderWindow = mainViewRenderer.getRenderWindow();
+	const stretchRenderer = mainViewRenderer.getRenderer();
 	const centerlineEl = document.getElementById("centerline");
 	const angleEl = document.getElementById("angle");
 	const animateEl = document.getElementById("animate");
@@ -52,6 +60,10 @@ async function initApp() {
 	const interactor = renderWindow.getInteractor();
 	interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
 	interactor.setDesiredUpdateRate(15.0);
+
+	const mainInteractor = mainRenderWindow.getInteractor();
+	mainInteractor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
+	mainInteractor.setDesiredUpdateRate(15.0);
 
 	// Reslice Cursor Widget
 	const stretchPlane = "Y";
@@ -76,6 +88,11 @@ async function initApp() {
 	const crossWidgetManager = vtkWidgetManager.newInstance();
 	crossWidgetManager.setRenderer(crossRenderer);
 	const crossViewWidgetInstance = crossWidgetManager.addWidget(widget, crossViewType);
+
+	// Add widget manager for main view
+	const widgetManager = vtkWidgetManager.newInstance();
+	widgetManager.setRenderer(stretchRenderer);
+	const stretchViewWidgetInstance = widgetManager.addWidget(widget, stretchViewType);
 
 	const reslice = vtkImageReslice.newInstance();
 	reslice.setTransformInputSampling(false);
@@ -153,8 +170,40 @@ async function initApp() {
 		angleEl.value = degAngle;
 		updateState(widgetState, widget.getScaleInPixels(), widget.getRotationHandlePosition());
 
+		const width = mapper.getWidth();
+		const height = mapper.getHeight();
+
+		// CPR actor matrix update for main view
+		const worldActorTranslation = vec3.scaleAndAdd([], worldWidgetCenter, worldTangent, -0.5 * width);
+		vec3.scaleAndAdd(worldActorTranslation, worldActorTranslation, worldNormal, distance - height);
+		const worldActorTransform = mat4.fromValues(
+			...worldTangent,
+			0,
+			...worldNormal,
+			0,
+			...vec3.scale([], worldBitangent, -1),
+			0,
+			...worldActorTranslation,
+			1
+		);
+		actor.setUserMatrix(worldActorTransform);
+
+		// CPR camera reset for main view
+		const stretchCamera = stretchRenderer.getActiveCamera();
+		const cameraDistance = (0.5 * height) / Math.tan(radiansFromDegrees(0.5 * stretchCamera.getViewAngle()));
+		stretchCamera.setParallelScale(0.5 * height);
+		stretchCamera.setParallelProjection(true);
+		const cameraFocalPoint = vec3.scaleAndAdd([], worldWidgetCenter, worldNormal, distance - 0.5 * height);
+		const cameraPosition = vec3.scaleAndAdd([], cameraFocalPoint, worldBitangent, -cameraDistance);
+		stretchCamera.setPosition(...cameraPosition);
+		stretchCamera.setFocalPoint(...cameraFocalPoint);
+		stretchCamera.setViewUp(...worldNormal);
+		stretchRenderer.resetCameraClippingRange();
+
 		interactor.render();
 		renderWindow.render();
+		mainInteractor.render();
+		mainRenderWindow.render();
 	}
 
 	function setAngleFromSlider(radAngle) {
@@ -245,11 +294,17 @@ async function initApp() {
 		reader.loadData().then(() => {
 			const image = reader.getOutputData();
 			widget.setImage(image);
-			// const imageDimensions = image.getDimensions();
-			// const imageSpacing = image.getSpacing();
-			// const diagonal = vec3.mul([], imageDimensions, imageSpacing);
-			// mapper.setWidth(2 * vec3.len(diagonal));
+			const imageDimensions = image.getDimensions();
+			const imageSpacing = image.getSpacing();
+			const diagonal = vec3.mul([], imageDimensions, imageSpacing);
+			mapper.setWidth(2 * vec3.len(diagonal));
 
+			// Setup main CPR view
+			actor.setUserMatrix(widget.getResliceAxes(stretchViewType));
+			stretchRenderer.addVolume(actor);
+			widget.updateCameraPoints(stretchRenderer, stretchViewType, true, false, true);
+
+			// Setup reslice view
 			reslice.setInputData(image);
 			resliceActor.setMapper(resliceMapper);
 			crossRenderer.addActor(resliceActor);
@@ -265,6 +320,7 @@ async function initApp() {
 	});
 
 	crossViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
+	stretchViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
 
 	// Angle control
 	angleEl.addEventListener("input", () => {
