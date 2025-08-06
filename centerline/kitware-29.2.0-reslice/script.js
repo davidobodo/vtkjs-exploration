@@ -33,39 +33,52 @@ import controlPanel from "./controller.html?raw";
 
 const volumePath = `https://kitware.github.io/vtk-js/data/volume/LIDC2.vti`;
 
-// Initialize the app
-async function initApp() {
-	// ----------------------------------------------------------------------------
-	// Standard rendering code setup
-	// ----------------------------------------------------------------------------
-
-	// Reslice view (left half)
+//------------------------------------------------
+// RESLICE VIEWPORT SETUP
+//------------------------------------------------
+function setupResliceContainer() {
 	const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
-		container: document.getElementById('reslice-container')
+		container: document.getElementById("reslice-container"),
 	});
 	const renderWindow = fullScreenRenderer.getRenderWindow();
-
 	fullScreenRenderer.addController(controlPanel);
-
-	// Main CPR view (right half)
-	const mainViewRenderer = vtkFullScreenRenderWindow.newInstance({
-		container: document.getElementById('main-view-container')
-	});
-	const mainRenderWindow = mainViewRenderer.getRenderWindow();
-	const stretchRenderer = mainViewRenderer.getRenderer();
-	const centerlineEl = document.getElementById("centerline");
-	const angleEl = document.getElementById("angle");
-	const animateEl = document.getElementById("animate");
 
 	const interactor = renderWindow.getInteractor();
 	interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
 	interactor.setDesiredUpdateRate(15.0);
 
-	const mainInteractor = mainRenderWindow.getInteractor();
+	return { fullScreenRenderer, renderWindow, interactor };
+}
+
+//------------------------------------------------
+// MAIN IMAGE VIEWPORT SETUP
+//------------------------------------------------
+function setupMainImageContainer() {
+	const mainViewRenderer = vtkFullScreenRenderWindow.newInstance({
+		container: document.getElementById("main-view-container"),
+	});
+	const renderWindow = mainViewRenderer.getRenderWindow();
+	const renderer = mainViewRenderer.getRenderer();
+
+	const mainInteractor = renderWindow.getInteractor();
 	mainInteractor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
 	mainInteractor.setDesiredUpdateRate(15.0);
 
-	// Reslice Cursor Widget
+	return { renderWindow, renderer, mainInteractor };
+}
+
+//------------------------------------------------
+// CONTROL ELEMENTS
+//------------------------------------------------
+function getControlElements() {
+	return {
+		centerlineEl: document.getElementById("centerline"),
+		angleEl: document.getElementById("angle"),
+		animateEl: document.getElementById("animate"),
+	};
+}
+
+function createInteractiveCrosshair() {
 	const stretchPlane = "Y";
 	const crossPlane = "Z";
 	const widget = vtkResliceCursorWidget.newInstance({
@@ -81,38 +94,50 @@ async function initApp() {
 	widgetState.getCenterHandle().setVisible(false);
 	widgetState.getStatesWithLabel(`rotationIn${stretchPlane}`).forEach((handle) => handle.setVisible(false));
 
+	return { widget, stretchViewType, crossViewType, widgetState, stretchPlane, crossPlane };
+}
+
+function setupResliceRenderer(renderWindow, widget, crossViewType) {
 	const crossRenderer = vtkRenderer.newInstance();
 	crossRenderer.setBackground(0.32, 0.34, 0.43);
 	crossRenderer.setViewport(0, 0, 1, 1);
 	renderWindow.addRenderer(crossRenderer);
+
 	const crossWidgetManager = vtkWidgetManager.newInstance();
 	crossWidgetManager.setRenderer(crossRenderer);
 	const crossViewWidgetInstance = crossWidgetManager.addWidget(widget, crossViewType);
 
-	// Add widget manager for main view
+	return { crossRenderer, crossWidgetManager, crossViewWidgetInstance };
+}
+
+function setupMainRenderer(stretchRenderer, widget, stretchViewType) {
 	const widgetManager = vtkWidgetManager.newInstance();
 	widgetManager.setRenderer(stretchRenderer);
 	const stretchViewWidgetInstance = widgetManager.addWidget(widget, stretchViewType);
 
+	return { widgetManager, stretchViewWidgetInstance };
+}
+
+function setupResliceComponents() {
 	const reslice = vtkImageReslice.newInstance();
 	reslice.setTransformInputSampling(false);
 	reslice.setAutoCropOutput(true);
 	reslice.setOutputDimensionality(2);
+
 	const resliceMapper = vtkImageMapper.newInstance();
 	resliceMapper.setBackgroundColor(0, 0, 0, 0);
 	resliceMapper.setInputConnection(reslice.getOutputPort());
+
 	const resliceActor = vtkImageSlice.newInstance();
 
-	// ----------------------------------------------------------------------------
-	// Example code
-	// ----------------------------------------------------------------------------
-	// Server is not sending the .gz and with the compress header
-	// Need to fetch the true file name and uncompress it locally
-	// ----------------------------------------------------------------------------
+	return { reslice, resliceMapper, resliceActor };
+}
 
-	const reader = vtkHttpDataSetReader.newInstance({ fetchGzip: true });
+function setupVolumeReader() {
+	return vtkHttpDataSetReader.newInstance({ fetchGzip: true });
+}
 
-	// Add CPR components
+function setupCPRComponents(reader) {
 	const centerline = vtkPolyData.newInstance();
 	const actor = vtkImageSlice.newInstance();
 	const mapper = vtkImageCPRMapper.newInstance();
@@ -128,7 +153,43 @@ async function initApp() {
 	});
 	const planeManipulator = vtkPlaneManipulator.newInstance();
 
-	let currentAngle = 0;
+	return { centerline, actor, mapper, cprManipulator, planeManipulator };
+}
+
+async function loadCenterlineData() {
+	const aortaJSON = await fetch("./aorta_centerline.json").then((r) => r.json());
+	const spineJSON = await fetch("./spine_centerline.json").then((r) => r.json());
+	const centerlineJsons = { Aorta: aortaJSON, Spine: spineJSON };
+	const centerlineKeys = Object.keys(centerlineJsons);
+	return { centerlineJsons, centerlineKeys };
+}
+
+function populateCenterlineOptions(centerlineEl, centerlineKeys) {
+	for (let i = 0; i < centerlineKeys.length; ++i) {
+		const name = centerlineKeys[i];
+		const optionEl = document.createElement("option");
+		optionEl.innerText = name;
+		optionEl.value = name;
+		centerlineEl.appendChild(optionEl);
+	}
+}
+
+// Initialize the app
+async function initApp() {
+	// Setup all components
+	const { renderWindow, interactor } = setupResliceContainer();
+	const { renderWindow: mainRenderWindow, renderer: stretchRenderer, mainInteractor } = setupMainImageContainer();
+	const { centerlineEl, angleEl, animateEl } = getControlElements();
+	const { widget, stretchViewType, crossViewType, widgetState, stretchPlane, crossPlane } = createInteractiveCrosshair();
+	const { crossRenderer, crossViewWidgetInstance } = setupResliceRenderer(renderWindow, widget, crossViewType);
+	const { stretchViewWidgetInstance } = setupMainRenderer(stretchRenderer, widget, stretchViewType);
+	const { reslice, resliceMapper, resliceActor } = setupResliceComponents();
+	const reader = setupVolumeReader();
+	const { centerline, actor, mapper, cprManipulator, planeManipulator } = setupCPRComponents(reader);
+
+	// Load centerline data
+	const { centerlineJsons, centerlineKeys } = await loadCenterlineData();
+	populateCenterlineOptions(centerlineEl, centerlineKeys);
 
 	function updateDistanceAndDirection() {
 		// Directions and position in world space from the widget
@@ -231,21 +292,6 @@ async function initApp() {
 		updateDistanceAndDirection();
 	}
 
-	// Load centerline data
-	const aortaJSON = await fetch("./aorta_centerline.json").then((r) => r.json());
-	const spineJSON = await fetch("./spine_centerline.json").then((r) => r.json());
-	const centerlineJsons = { Aorta: aortaJSON, Spine: spineJSON };
-	const centerlineKeys = Object.keys(centerlineJsons);
-
-	// Create an option for each centerline
-	for (let i = 0; i < centerlineKeys.length; ++i) {
-		const name = centerlineKeys[i];
-		const optionEl = document.createElement("option");
-		optionEl.innerText = name;
-		optionEl.value = name;
-		centerlineEl.appendChild(optionEl);
-	}
-
 	let currentImage = null;
 	function setCenterlineKey(centerlineKey) {
 		const centerlineJson = centerlineJsons[centerlineKey];
@@ -287,71 +333,81 @@ async function initApp() {
 		renderWindow.render();
 	}
 
+	function setupAngleControls() {
+		// Angle control
+		angleEl.addEventListener("input", () => {
+			const degAngle = Number.parseFloat(angleEl.value, 10);
+			setAngleFromSlider(radiansFromDegrees(degAngle));
+		});
+
+		// Animation control
+		let animationId;
+		animateEl.addEventListener("change", () => {
+			if (animateEl.checked) {
+				animationId = setInterval(() => {
+					const currentAngle = radiansFromDegrees(Number.parseFloat(angleEl.value, 10));
+					setAngleFromSlider(currentAngle + 0.1);
+				}, 60);
+			} else {
+				clearInterval(animationId);
+			}
+		});
+	}
+
+	async function loadAndSetupVolumeData() {
+		await reader.setUrl(volumePath);
+		await reader.loadData();
+
+		const image = reader.getOutputData();
+		widget.setImage(image);
+
+		const imageDimensions = image.getDimensions();
+		const imageSpacing = image.getSpacing();
+		const diagonal = vec3.mul([], imageDimensions, imageSpacing);
+		mapper.setWidth(2 * vec3.len(diagonal));
+
+		// Setup main CPR view
+		actor.setUserMatrix(widget.getResliceAxes(stretchViewType));
+		stretchRenderer.addVolume(actor);
+		widget.updateCameraPoints(stretchRenderer, stretchViewType, true, false, true);
+
+		// Setup reslice view
+		reslice.setInputData(image);
+		resliceActor.setMapper(resliceMapper);
+		crossRenderer.addActor(resliceActor);
+		widget.updateReslicePlane(reslice, crossViewType);
+		resliceActor.setUserMatrix(reslice.getResliceAxes());
+		widget.updateCameraPoints(crossRenderer, crossViewType, true, false, true);
+
+		currentImage = image;
+		setCenterlineKey(centerlineKeys[0]);
+
+		return image;
+	}
+
+	function setupInteractionEvents() {
+		crossViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
+		stretchViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
+	}
+
+	function setupGlobalVariables(image) {
+		if (typeof global !== "undefined") {
+			global.source = reader;
+			global.renderWindow = renderWindow;
+			global.widget = widget;
+			global.reslice = reslice;
+			global.imageData = image;
+		}
+	}
+
+	// Setup centerline selection
 	centerlineEl.addEventListener("input", () => setCenterlineKey(centerlineEl.value));
 
-	// Read image
-	reader.setUrl(volumePath).then(() => {
-		reader.loadData().then(() => {
-			const image = reader.getOutputData();
-			widget.setImage(image);
-			const imageDimensions = image.getDimensions();
-			const imageSpacing = image.getSpacing();
-			const diagonal = vec3.mul([], imageDimensions, imageSpacing);
-			mapper.setWidth(2 * vec3.len(diagonal));
-
-			// Setup main CPR view
-			actor.setUserMatrix(widget.getResliceAxes(stretchViewType));
-			stretchRenderer.addVolume(actor);
-			widget.updateCameraPoints(stretchRenderer, stretchViewType, true, false, true);
-
-			// Setup reslice view
-			reslice.setInputData(image);
-			resliceActor.setMapper(resliceMapper);
-			crossRenderer.addActor(resliceActor);
-			widget.updateReslicePlane(reslice, crossViewType);
-			resliceActor.setUserMatrix(reslice.getResliceAxes());
-			widget.updateCameraPoints(crossRenderer, crossViewType, true, false, true);
-
-			currentImage = image;
-			setCenterlineKey(centerlineKeys[0]);
-
-			global.imageData = image;
-		});
-	});
-
-	crossViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
-	stretchViewWidgetInstance.onInteractionEvent(updateDistanceAndDirection);
-
-	// Angle control
-	angleEl.addEventListener("input", () => {
-		const degAngle = Number.parseFloat(angleEl.value, 10);
-		setAngleFromSlider(radiansFromDegrees(degAngle));
-	});
-
-	// Animation control
-	let animationId;
-	animateEl.addEventListener("change", () => {
-		if (animateEl.checked) {
-			animationId = setInterval(() => {
-				const currentAngle = radiansFromDegrees(Number.parseFloat(angleEl.value, 10));
-				setAngleFromSlider(currentAngle + 0.1);
-			}, 60);
-		} else {
-			clearInterval(animationId);
-		}
-	});
-
-	// -----------------------------------------------------------
-	// Make some variables global so that you can inspect and
-	// modify objects in your browser's developer console:
-	// -----------------------------------------------------------
-
-	if (typeof global !== "undefined") {
-		global.source = reader;
-		global.renderWindow = renderWindow;
-		global.widget = widget;
-		global.reslice = reslice;
-	}
+	// Load volume data and finalize setup
+	const image = await loadAndSetupVolumeData();
+	setupInteractionEvents();
+	setupAngleControls();
+	setupGlobalVariables(image);
 } // End initApp
 
 // Start the application
